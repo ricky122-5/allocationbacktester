@@ -111,27 +111,37 @@ def backtest_best_ask(venuesDF, orderSize):
             break
 
         snapshot = venuesDF[venuesDF['ts_event'] == t]
-        best = min(
-            snapshot.itertuples(),
-            key=lambda r: (r.ask_px_00 + fee_map.get(r.publisher_id,0.0))
-        )
-        price, size = best.ask_px_00 + fee_map.get(best.publisher_id,0.0), best.ask_sz_00
+        
+        best_price = float('inf')
+        best_venue = None
+        
+        for row in snapshot.itertuples():
+            venue_price = row.ask_px_00 + fee_map.get(row.publisher_id, 0.0)
+            if venue_price < best_price:
+                best_price = venue_price
+                best_venue = row
+        
+        price = best_price
+        size = best_venue.ask_sz_00
         exe = min(size, remaining)
         total_cost += exe * price
         total_exec += exe
         remaining -= exe
 
     if remaining > 0:
-        worst = max(
-            (row.ask_px_00 + fee_map.get(row.publisher_id,0.0))
-            for row in snapshot.itertuples()
-        )
-        total_cost += remaining * worst
+        worst_price = 0
+        for row in snapshot.itertuples():
+            venue_price = row.ask_px_00 + fee_map.get(row.publisher_id, 0.0)
+            if venue_price > worst_price:
+                worst_price = venue_price
+        
+        total_cost += remaining * worst_price
         total_exec += remaining
 
     return total_cost, total_exec, total_cost / total_exec
 
 def backtest_twap(venuesDF, orderSize):
+    # processing 60 second buckets
     venuesDF = venuesDF.copy()
     
     if isinstance(venuesDF['ts_event'].iloc[0], str):
@@ -153,13 +163,17 @@ def backtest_twap(venuesDF, orderSize):
         if remaining <= 0:
             break
         
-        best = min(
-            bucket_data.itertuples(),
-            key=lambda r: (r.ask_px_00 + fee_map.get(r.publisher_id, 0.0))
-        )
+        best_price = float('inf')
+        best_venue = None
         
-        price = best.ask_px_00 + fee_map.get(best.publisher_id, 0.0)
-        size = best.ask_sz_00
+        for row in bucket_data.itertuples():
+            venue_price = row.ask_px_00 + fee_map.get(row.publisher_id, 0.0)
+            if venue_price < best_price:
+                best_price = venue_price
+                best_venue = row
+        
+        price = best_price
+        size = best_venue.ask_sz_00
         exe = min(size, per_bucket, remaining)
         total_cost += exe * price
         total_exec += exe
@@ -168,11 +182,13 @@ def backtest_twap(venuesDF, orderSize):
         last_snapshot = bucket_data
 
     if remaining > 0 and last_snapshot is not None:
-        worst = max(
-            (row.ask_px_00 + fee_map.get(row.publisher_id, 0.0))
-            for row in last_snapshot.itertuples()
-        )
-        total_cost += remaining * worst
+        worst_price = 0
+        for row in last_snapshot.itertuples():
+            venue_price = row.ask_px_00 + fee_map.get(row.publisher_id, 0.0)
+            if venue_price > worst_price:
+                worst_price = venue_price
+                
+        total_cost += remaining * worst_price
         total_exec += remaining
 
     return total_cost, total_exec, total_cost / total_exec
@@ -186,25 +202,35 @@ def backtest_vwap(venuesDF, orderSize):
         if remaining <= 0:
             break
         snapshot = venuesDF[venuesDF['ts_event'] == t]
-        depths = [row.ask_sz_00 for row in snapshot.itertuples()]
+        
+        depths = []
+        for row in snapshot.itertuples():
+            depths.append(row.ask_sz_00)
         total_depth = sum(depths)
-        allocs = [
-            int(np.floor(remaining * row.ask_sz_00 / total_depth))
-            for row in snapshot.itertuples()
-        ]
-        for qty, row in zip(allocs, snapshot.itertuples()):
-            price = row.ask_px_00 + fee_map.get(row.publisher_id,0.0)
+        
+        allocs = []
+        for row in snapshot.itertuples():
+            allocs.append(int(np.floor(remaining * row.ask_sz_00 / total_depth)))
+        
+        for i, row in enumerate(snapshot.itertuples()):
+            qty = allocs[i]
+            price = row.ask_px_00 + fee_map.get(row.publisher_id, 0.0)
             exe = min(qty, row.ask_sz_00, remaining)
             total_cost += exe * price
             total_exec += exe
             remaining -= exe
+        
         if remaining <= 0:
             break
 
     if remaining > 0:
-        worst = max(row.ask_px_00 + fee_map.get(row.publisher_id,0.0)
-                    for row in snapshot.itertuples())
-        total_cost += remaining * worst
+        worst_price = 0
+        for row in snapshot.itertuples():
+            venue_price = row.ask_px_00 + fee_map.get(row.publisher_id, 0.0)
+            if venue_price > worst_price:
+                worst_price = venue_price
+                
+        total_cost += remaining * worst_price
         total_exec += remaining
 
     return total_cost, total_exec, total_cost / total_exec
