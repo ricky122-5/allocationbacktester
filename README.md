@@ -41,7 +41,7 @@ Further improvements could include:
 - Machine learning-based fill probability estimation
 
 ## Results
-
+We assume a flat 30 cents per share taker fee and a 2 cents per share maker rebate on every venue.
 The backtest optimizes the parameters and reports:
 - Optimal parameter values
 - Average execution price for each strategy  
